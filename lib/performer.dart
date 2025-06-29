@@ -142,7 +142,7 @@ class Performer<Data extends DataState> {
   Data _data;
 
   Performer({required Data data}) : _data = data {
-    _startQueueProcessor();
+    _processQueue();
   }
 
   /// Stream of states
@@ -165,38 +165,36 @@ class Performer<Data extends DataState> {
   }
 
   /// Xử lý tuần tự các usecase trong queue
-  void _startQueueProcessor() {
-    () async {
-      await for (final usecase in _usecaseQueue.stream) {
-        // Đánh dấu usecase này đang active
-        _activeUsecases.add(usecase);
+  Future<void> _processQueue() async {
+    await for (final usecase in _usecaseQueue.stream) {
+      // 1) Đánh dấu usecase đang active
+      _activeUsecases.add(usecase);
 
-        // Controller gom chung các state từ execute và emit callback
-        final controller = StreamController<Data>();
+      // 2) Controller gom các state từ usecase
+      final controller = StreamController<Data>();
 
-        // Gán emit cho usecase
-        usecase.emit = (Data newState) {
-          controller.add(newState);
-        };
+      // 3) Gán emit() để usecase push vào controller
+      usecase.emit = (Data newState) => controller.add(newState);
 
-        // Stream của execute
-        final execStream = usecase.execute(_data).asBroadcastStream();
-        execStream.listen(
-          controller.add,
-          onError: controller.addError,
-          cancelOnError: false,
-          onDone: () => controller.close
-        );
+      // 4) Khởi chạy execute(), broadcast để có thể listen nhiều lần nếu cần
+      final execStream = usecase.execute(_data).asBroadcastStream();
+      execStream.listen(
+        controller.add,
+        onError: controller.addError,
+        cancelOnError: false,
+        onDone: () => controller.close(),  // đóng controller khi execStream xong
+      );
 
-        // Lắng nghe controller để cập nhật state
-        await for (final state in controller.stream) {
-          _newState(state);
-        }
-
-        // Khi xong usecase này, cleanup controller và đánh dấu inactive
-        _activeUsecases.remove(usecase);
+      // 5) TUẦN TỰ: chờ controller.stream đóng
+      await for (final state in controller.stream) {
+        _newState(state);
       }
-    }();
+
+      // 6) Cleanup khi usecase này hoàn tất
+      await controller.close();
+      _activeUsecases.remove(usecase);
+      usecase.dispose();
+    }
   }
 
   /// Dispose performer: đóng stream, queue và dispose các usecase đang chạy
