@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:equatable/equatable.dart';
+import 'package:flutter/cupertino.dart';
 
 //-----------------------------DATA STATE----------------------------------
 /// Lưu trữ trạng thái dữ liệu chỉ đọc
@@ -124,6 +125,9 @@ mixin ActionMerge {
 abstract class ActionUnit<T extends DataState> {
   late void Function(T newState) emit;
   Stream<T> execute(T current);
+
+  @mustCallSuper
+  void dispose() {}
 }
 
 //--------------------------------NGƯỜI XỬ LÝ-------------------------------
@@ -132,16 +136,27 @@ abstract class ActionUnit<T extends DataState> {
 ///
 class Performer<Data extends DataState> {
   final _streamController = StreamController<Data>.broadcast();
-  final _usecaseQueue = StreamController<ActionUnit<Data>>();
+  final _usecaseQueue    = StreamController<ActionUnit<Data>>();
+  final Set<ActionUnit<Data>> _activeUsecases = {};
+
   Data _data;
 
   Performer({required Data data}) : _data = data {
     _startQueueProcessor();
   }
 
+  /// Stream of states
   Stream<Data> get stream => _streamController.stream;
+
+  /// Current state
   Data get current => _data;
 
+  /// Dispatch một usecase vào queue
+  void add(ActionUnit<Data> usecase) {
+    _usecaseQueue.add(usecase);
+  }
+
+  /// Cập nhật state và emit nếu khác state cũ
   void _newState(Data data) {
     if (data != _data && !_streamController.isClosed) {
       _data = data;
@@ -149,35 +164,53 @@ class Performer<Data extends DataState> {
     }
   }
 
-  void add(ActionUnit<Data> usecase) {
-    _usecaseQueue.add(usecase);
-  }
-
+  /// Xử lý tuần tự các usecase trong queue
   void _startQueueProcessor() {
     () async {
       await for (final usecase in _usecaseQueue.stream) {
+        // Đánh dấu usecase này đang active
+        _activeUsecases.add(usecase);
+
+        // Controller gom chung các state từ execute và emit callback
         final controller = StreamController<Data>();
 
-        // Gán emit để action có thể gọi emit(state)
+        // Gán emit cho usecase
         usecase.emit = (Data newState) {
           controller.add(newState);
         };
 
-        // Gộp cả emit và stream từ execute
-        final stream = usecase.execute(_data).asBroadcastStream();
-        stream.listen(controller.add, onError: controller.addError);
+        // Stream của execute
+        final execStream = usecase.execute(_data).asBroadcastStream();
+        execStream.listen(
+          controller.add,
+          onError: controller.addError,
+          cancelOnError: false,
+        );
 
+        // Lắng nghe controller để cập nhật state
         await for (final state in controller.stream) {
           _newState(state);
         }
 
+        // Khi xong usecase này, cleanup controller và đánh dấu inactive
         await controller.close();
+        _activeUsecases.remove(usecase);
       }
     }();
   }
 
+  /// Dispose performer: đóng stream, queue và dispose các usecase đang chạy
   void dispose() {
+    // 1) Đóng stream kết quả
     _streamController.close();
+
+    // 2) Đóng queue để không nhận thêm usecase
     _usecaseQueue.close();
+
+    // 3) Gọi dispose() lên từng usecase còn active
+    for (var uc in _activeUsecases) {
+      uc.dispose();
+    }
+    _activeUsecases.clear();
   }
 }
