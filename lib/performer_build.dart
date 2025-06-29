@@ -10,7 +10,7 @@ class PerformerProvider<P extends Performer> extends StatefulWidget {
   const PerformerProvider({
     super.key,
     required this.create,
-    required this.child,
+    this.child,
   });
 
   @override
