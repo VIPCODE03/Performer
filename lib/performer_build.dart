@@ -5,7 +5,7 @@ typedef Create<P extends Performer> = P Function(BuildContext context);
 
 class PerformerProvider<P extends Performer> extends StatefulWidget {
   final Create<P> create;
-  final Widget child;
+  final Widget? child;
 
   const PerformerProvider({
     super.key,
@@ -73,7 +73,7 @@ class _PerformerProviderState<P extends Performer> extends State<PerformerProvid
   Widget build(BuildContext context) {
     return _PerformerInherited<P>(
       performer: _performer,
-      child: widget.child,
+      child: widget.child ?? SizedBox.shrink(),
     );
   }
 }
