@@ -185,7 +185,6 @@ class Performer<Data extends DataState> {
           controller.add,
           onError: controller.addError,
           cancelOnError: false,
-          onDone: controller.close
         );
 
         // Lắng nghe controller để cập nhật state
