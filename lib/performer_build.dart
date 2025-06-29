@@ -1,110 +1,218 @@
-import 'package:flutter/widgets.dart';
-import 'package:performer/performer.dart';
+import 'dart:async';
+import 'package:equatable/equatable.dart';
+import 'package:flutter/cupertino.dart';
 
-typedef Create<P extends Performer> = P Function(BuildContext context);
+//-----------------------------DATA STATE----------------------------------
+/// Lưu trữ trạng thái dữ liệu chỉ đọc
+/// Ví dụ:
+/*class ExerciseState extends DataState {
+  final List<Exercise> exercises;
+  final bool isLoading;
 
-class PerformerProvider<P extends Performer> extends StatefulWidget {
-  final Create<P> create;
-  final Widget? child;
+  const ExerciseState(this.exercises, this.isLoading);
 
-  const PerformerProvider({
-    super.key,
-    required this.create,
-    this.child,
-  });
+  ExerciseState copyWith({
+    List<Exercise>? exercises,
+    bool? isLoading,
+  }) {
+    return ExerciseState(
+      exercises ?? this.exercises,
+      isLoading ?? this.isLoading,
+    );
+  }
 
   @override
-  State<PerformerProvider<P>> createState() => _PerformerProviderState<P>();
+  List<Object?> get props => [exercises, isLoading];
+}*/
+abstract class DataState extends Equatable {
+  const DataState();
+}
 
-  static P of<P extends Performer>(BuildContext context) {
-    final inherited = context.dependOnInheritedWidgetOfExactType<_PerformerInherited<P>>();
-    assert(inherited != null, 'PerformerProvider<$P> not found in context');
-    return inherited!.performer;
+//-----------------------------ACTION-EVENT------------------------------------
+/// Xử lý sự kiện tác động lên [DataState] làm thay đổi trạng thái
+/// Mỗi loại đều tác động đến 1 trạng thái cụ thể.
+
+/// Kết hợp chạy tích hợp các action lại với nhau
+/// Ví dụ:
+/*abstract class DetailSubjectAction extends ActionUnit<DetailSubjectState> {}
+
+class LoadData extends DetailSubjectAction with ActionExecutor {
+  final int subjectId;
+
+  LoadData(this.subjectId);
+
+  @override
+  Stream<DetailSubjectState> execute(DetailSubjectState current) async* {
+    DetailSubjectState currentState = current;
+
+    final theoryStream = run<TheoryState>(
+      LoadTheoryBySubjectId(subjectId),
+      current.theoryState,
+    );
+
+    final exerciseStream = run<ExerciseState>(
+      LoadExerciseBySubjectId(subjectId),
+      current.exerciseState,
+    );
+
+    yield* StreamGroup.merge([
+      theoryStream.map((stream) => currentState = currentState.copyWith(theoryState: stream)),
+      exerciseStream.map((stream) => currentState = currentState.copyWith(exerciseState: stream)),
+    ]);
+
+  }
+}*/
+mixin ActionExecutor {
+  Stream<D> run<D extends DataState>(ActionUnit<D> usecase, D current) {
+    return usecase.execute(current);
   }
 }
 
-class MultiPerformerProvider extends StatelessWidget {
-  final List<Widget> providers;
-  final Widget child;
+/// Chứa sự kiện thực hiện có tác động và trả về 1 trạng thái mới
+/// Ví dụ:
+/*abstract class TheoryAction extends ActionUnit<TheoryState> {
+  final List<Theory> repository = [
+    Theory(id: 1, subjectId: 1, content: 'content', title: 'title'),
+    Theory(id: 2, subjectId: 1, content: 'content', title: 'title'),
+  ];
+}
 
-  const MultiPerformerProvider({
-    super.key,
-    required this.providers,
-    required this.child,
-  });
+class LoadTheoryBySubjectId extends TheoryAction {
+  final int subjectId;
+
+  LoadTheoryBySubjectId(this.subjectId);
 
   @override
-  Widget build(BuildContext context) {
-    Widget current = child;
-    for (final provider in providers.reversed) {
-      current = _wrapWith(provider, current);
-    }
-    return current;
+  Stream<TheoryState> execute(TheoryState current) async* {
+    yield current.copyWith(isLoading: true);
+    await Future.delayed(const Duration(seconds: 3));
+    yield current.copyWith(theories: repository, isLoading: false);
   }
+}*/
 
-  Widget _wrapWith(Widget provider, Widget child) {
-    if (provider is PerformerProvider) {
-      return PerformerProvider(
-        key: provider.key,
-        create: provider.create,
-        child: child,
+/// Kết hợp stream thực hiện song song, đồng thời
+/*
+    yield* merge([
+     theoryStream.map((stream) => currentState = currentState.copyWith(theoryState: stream)),
+      exerciseStream.map((stream) => currentState = currentState.copyWith(exerciseState: stream)),
+    ]);
+
+* */
+mixin ActionMerge {
+  Stream<T> merge<T>(List<Stream<T>> streams) {
+    final controller = StreamController<T>();
+
+    int activeStreams = streams.length;
+
+    for (final stream in streams) {
+      stream.listen(
+        controller.add,
+        onError: controller.addError,
+        onDone: () {
+          activeStreams--;
+          if (activeStreams == 0) {
+            controller.close();
+          }
+        },
+        cancelOnError: false,
       );
     }
-    throw ArgumentError('Only PerformerProvider widgets are allowed');
+
+    return controller.stream;
   }
 }
 
-class _PerformerProviderState<P extends Performer> extends State<PerformerProvider<P>> {
-  late final P _performer;
+abstract class ActionUnit<T extends DataState> {
+  late void Function(T newState) emit;
+  Stream<T> execute(T current);
 
-  @override
-  void initState() {
-    super.initState();
-    _performer = widget.create(context);
+  @mustCallSuper
+  void dispose() {}
+}
+
+//--------------------------------NGƯỜI XỬ LÝ-------------------------------
+/// Nó sẽ chịu trách nhiệm xử lý cho 1 trạng thái [DataState] cụ thể
+/// Thực hiện và lắng nghe các [ActionUnit] được UI gửi tới
+///
+class Performer<Data extends DataState> {
+  final _streamController = StreamController<Data>.broadcast();
+  final _usecaseQueue    = StreamController<ActionUnit<Data>>();
+  final Set<ActionUnit<Data>> _activeUsecases = {};
+
+  Data _data;
+
+  Performer({required Data data}) : _data = data {
+    _startQueueProcessor();
   }
 
-  @override
+  /// Stream of states
+  Stream<Data> get stream => _streamController.stream;
+
+  /// Current state
+  Data get current => _data;
+
+  /// Dispatch một usecase vào queue
+  void add(ActionUnit<Data> usecase) {
+    _usecaseQueue.add(usecase);
+  }
+
+  /// Cập nhật state và emit nếu khác state cũ
+  void _newState(Data data) {
+    if (data != _data && !_streamController.isClosed) {
+      _data = data;
+      _streamController.add(data);
+    }
+  }
+
+  /// Xử lý tuần tự các usecase trong queue
+  void _startQueueProcessor() {
+    _usecaseQueue.stream.listen((usecase) {
+      _activeUsecases.add(usecase);
+
+      // 1) Controller gom các state emit
+      final controller = StreamController<Data>();
+
+      // 2) Gán emit() để usecase call vào controller
+      usecase.emit = (Data newState) {
+        controller.add(newState);
+      };
+
+      // 3) Chạy execute(), chuyển vào broadcast stream
+      final execStream = usecase.execute(_data).asBroadcastStream();
+
+      // khi execStream có dữ liệu hoặc hoàn tất → forward vào controller
+      final subExec = execStream.listen(
+        controller.add,
+        onError: controller.addError,
+        cancelOnError: false,
+      );
+
+      // 4) Lắng nghe controller để update state và cleanup khi xong
+      controller.stream.listen((state) {
+          _newState(state);
+        },
+        onDone: () {
+          _activeUsecases.remove(usecase);
+          usecase.dispose();
+          subExec.cancel();              // huỷ subscription của execStream
+        },
+      );
+      controller.close();            // đóng controller khi execStream done
+    });
+  }
+
+  /// Dispose performer: đóng stream, queue và dispose các usecase đang chạy
   void dispose() {
-    _performer.dispose();
-    super.dispose();
-  }
+    // 1) Đóng stream kết quả
+    _streamController.close();
 
-  @override
-  Widget build(BuildContext context) {
-    return _PerformerInherited<P>(
-      performer: _performer,
-      child: widget.child ?? SizedBox.shrink(),
-    );
-  }
-}
+    // 2) Đóng queue để không nhận thêm usecase
+    _usecaseQueue.close();
 
-class _PerformerInherited<P extends Performer> extends InheritedWidget {
-  final P performer;
-
-  const _PerformerInherited({
-    required this.performer,
-    required super.child,
-  });
-
-  @override
-  bool updateShouldNotify(_PerformerInherited<P> oldWidget) => false;
-}
-
-class PerformerBuilder<P extends Performer> extends StatelessWidget {
-  final Widget Function(BuildContext context, P performer) builder;
-
-  const PerformerBuilder({super.key, required this.builder});
-
-  @override
-  Widget build(BuildContext context) {
-    final performer = PerformerProvider.of<P>(context);
-
-    return StreamBuilder<DataState>(
-      stream: performer.stream,
-      initialData: performer.current,
-      builder: (context, snapshot) {
-        return builder(context, performer);
-      },
-    );
+    // 3) Gọi dispose() lên từng usecase còn active
+    for (var uc in _activeUsecases) {
+      uc.dispose();
+    }
+    _activeUsecases.clear();
   }
 }
