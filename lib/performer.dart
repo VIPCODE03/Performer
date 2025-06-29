@@ -122,6 +122,7 @@ mixin ActionMerge {
 }
 
 abstract class ActionUnit<T extends DataState> {
+  late void Function(T newState) emit;
   Stream<T> execute(T current);
 }
 
@@ -155,9 +156,22 @@ class Performer<Data extends DataState> {
   void _startQueueProcessor() {
     () async {
       await for (final usecase in _usecaseQueue.stream) {
-        await for (final state in usecase.execute(_data)) {
+        final controller = StreamController<Data>();
+
+        // Gán emit để action có thể gọi emit(state)
+        usecase.emit = (Data newState) {
+          controller.add(newState);
+        };
+
+        // Gộp cả emit và stream từ execute
+        final stream = usecase.execute(_data).asBroadcastStream();
+        stream.listen(controller.add, onError: controller.addError);
+
+        await for (final state in controller.stream) {
           _newState(state);
         }
+
+        await controller.close();
       }
     }();
   }
