@@ -166,42 +166,38 @@ class Performer<Data extends DataState> {
 
   /// Xử lý tuần tự các usecase trong queue
   void _startQueueProcessor() {
-    _usecaseQueue.stream.listen((usecase) {
-      _activeUsecases.add(usecase);
+    () async {
+      await for (final usecase in _usecaseQueue.stream) {
+        // Đánh dấu usecase này đang active
+        _activeUsecases.add(usecase);
 
-      // 1) Controller gom các state emit
-      final controller = StreamController<Data>();
+        // Controller gom chung các state từ execute và emit callback
+        final controller = StreamController<Data>();
 
-      // 2) Gán emit() để usecase call vào controller
-      usecase.emit = (Data newState) {
-        controller.add(newState);
-      };
+        // Gán emit cho usecase
+        usecase.emit = (Data newState) {
+          controller.add(newState);
+        };
 
-      // 3) Chạy execute(), chuyển vào broadcast stream
-      final execStream = usecase.execute(_data).asBroadcastStream();
+        // Stream của execute
+        final execStream = usecase.execute(_data).asBroadcastStream();
+        execStream.listen(
+          controller.add,
+          onError: controller.addError,
+          cancelOnError: false,
+          onDone: controller.close
+        );
 
-      // khi execStream có dữ liệu hoặc hoàn tất → forward vào controller
-      final subExec = execStream.listen(
-        controller.add,
-        onError: controller.addError,
-        onDone: () {
-          controller.close();            // đóng controller khi execStream done
-        },
-        cancelOnError: false,
-      );
-
-      // 4) Lắng nghe controller để update state và cleanup khi xong
-      controller.stream.listen(
-            (state) {
+        // Lắng nghe controller để cập nhật state
+        await for (final state in controller.stream) {
           _newState(state);
-        },
-        onDone: () {
-          _activeUsecases.remove(usecase);
-          usecase.dispose();
-          subExec.cancel();              // huỷ subscription của execStream
-        },
-      );
-    });
+        }
+
+        // Khi xong usecase này, cleanup controller và đánh dấu inactive
+        await controller.close();
+        _activeUsecases.remove(usecase);
+      }
+    }();
   }
 
   /// Dispose performer: đóng stream, queue và dispose các usecase đang chạy
