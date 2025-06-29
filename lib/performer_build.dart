@@ -1,8 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:performer/performer.dart';
 
+typedef Create<P extends Performer> = P Function(BuildContext context);
+
 class PerformerProvider<P extends Performer> extends StatefulWidget {
-  final P Function() create;
+  final Create<P> create;
   final Widget child;
 
   const PerformerProvider({
@@ -17,39 +19,70 @@ class PerformerProvider<P extends Performer> extends StatefulWidget {
   static P of<P extends Performer>(BuildContext context) {
     final inherited = context.dependOnInheritedWidgetOfExactType<_PerformerInherited<P>>();
     assert(inherited != null, 'PerformerProvider<$P> not found in context');
-    return inherited!.conductor;
+    return inherited!.performer;
+  }
+}
+
+class MultiPerformerProvider extends StatelessWidget {
+  final List<Widget> providers;
+  final Widget child;
+
+  const MultiPerformerProvider({
+    super.key,
+    required this.providers,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget current = child;
+    for (final provider in providers.reversed) {
+      current = _wrapWith(provider, current);
+    }
+    return current;
+  }
+
+  Widget _wrapWith(Widget provider, Widget child) {
+    if (provider is PerformerProvider) {
+      return PerformerProvider(
+        key: provider.key,
+        create: provider.create,
+        child: child,
+      );
+    }
+    throw ArgumentError('Only PerformerProvider widgets are allowed');
   }
 }
 
 class _PerformerProviderState<P extends Performer> extends State<PerformerProvider<P>> {
-  late P _conductor;
+  late final P _performer;
 
   @override
   void initState() {
     super.initState();
-    _conductor = widget.create();
+    _performer = widget.create(context);
   }
 
   @override
   void dispose() {
-    _conductor.dispose();
+    _performer.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return _PerformerInherited<P>(
-      conductor: _conductor,
+      performer: _performer,
       child: widget.child,
     );
   }
 }
 
 class _PerformerInherited<P extends Performer> extends InheritedWidget {
-  final P conductor;
+  final P performer;
 
   const _PerformerInherited({
-    required this.conductor,
+    required this.performer,
     required super.child,
   });
 
@@ -57,20 +90,20 @@ class _PerformerInherited<P extends Performer> extends InheritedWidget {
   bool updateShouldNotify(_PerformerInherited<P> oldWidget) => false;
 }
 
-class ConductorBuilder<P extends Performer> extends StatelessWidget {
-  final Widget Function(BuildContext context, P conductor) builder;
+class PerformerBuilder<P extends Performer> extends StatelessWidget {
+  final Widget Function(BuildContext context, P performer) builder;
 
-  const ConductorBuilder({super.key, required this.builder});
+  const PerformerBuilder({super.key, required this.builder});
 
   @override
   Widget build(BuildContext context) {
-    final conductor = PerformerProvider.of<P>(context);
+    final performer = PerformerProvider.of<P>(context);
 
     return StreamBuilder<DataState>(
-      stream: conductor.stream,
-      initialData: conductor.current,
+      stream: performer.stream,
+      initialData: performer.current,
       builder: (context, snapshot) {
-        return builder(context, conductor);
+        return builder(context, performer);
       },
     );
   }
