@@ -174,7 +174,7 @@ class Performer<Data extends DataState> {
       final controller = StreamController<Data>();
 
       // 3) Gán emit() để usecase push vào controller
-      usecase.emit = (Data newState) => controller.add(newState);
+      usecase.emit = (Data newState) => _newState(newState);
 
       // 4) Khởi chạy execute(), broadcast để có thể listen nhiều lần nếu cần
       final execStream = usecase.execute(_data).asBroadcastStream();
