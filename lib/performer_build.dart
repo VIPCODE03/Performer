@@ -184,16 +184,19 @@ class Performer<Data extends DataState> {
       final subExec = execStream.listen(
         controller.add,
         onError: controller.addError,
+        onDone: () {
+          controller.close();            // đóng controller khi execStream done
+        },
         cancelOnError: false,
       );
 
       // 4) Lắng nghe controller để update state và cleanup khi xong
-      controller.stream.listen((state) {
+      controller.stream.listen(
+            (state) {
           _newState(state);
         },
         onDone: () {
           _activeUsecases.remove(usecase);
-          controller.close();            // đóng controller khi execStream done
           usecase.dispose();
           subExec.cancel();              // huỷ subscription của execStream
         },
