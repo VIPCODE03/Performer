@@ -193,11 +193,11 @@ class Performer<Data extends DataState> {
         },
         onDone: () {
           _activeUsecases.remove(usecase);
+          controller.close();            // đóng controller khi execStream done
           usecase.dispose();
           subExec.cancel();              // huỷ subscription của execStream
         },
       );
-      controller.close();            // đóng controller khi execStream done
     });
   }
 
