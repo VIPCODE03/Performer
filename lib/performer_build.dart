@@ -78,6 +78,54 @@ class _PerformerProviderState<P extends Performer> extends State<PerformerProvid
   }
 }
 
+class ExternalPerformerProvider<P extends Performer> extends StatefulWidget {
+  final P performer;
+  final bool disposeOnUnmount;
+  final Widget? child;
+
+  const ExternalPerformerProvider({
+    super.key,
+    required this.performer,
+    this.disposeOnUnmount = false,
+    this.child,
+  });
+
+  @override
+  State<ExternalPerformerProvider<P>> createState() => _ExternalPerformerProviderState<P>();
+
+  static P of<P extends Performer>(BuildContext context) {
+    final inherited = context.dependOnInheritedWidgetOfExactType<_PerformerInherited<P>>();
+    assert(inherited != null, 'ExternalPerformerProvider<$P> not found in context');
+    return inherited!.performer;
+  }
+}
+
+class _ExternalPerformerProviderState<P extends Performer> extends State<ExternalPerformerProvider<P>> {
+  late final P _performer;
+
+  @override
+  void initState() {
+    super.initState();
+    _performer = widget.performer;
+  }
+
+  @override
+  void dispose() {
+    if (widget.disposeOnUnmount) {
+      _performer.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _PerformerInherited<P>(
+      performer: _performer,
+      child: widget.child ?? const SizedBox.shrink(),
+    );
+  }
+}
+
 class _PerformerInherited<P extends Performer> extends InheritedWidget {
   final P performer;
 
