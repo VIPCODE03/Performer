@@ -4,14 +4,27 @@ import 'package:performer/performer.dart';
 typedef Create<P extends Performer> = P Function(BuildContext context);
 
 class PerformerProvider<P extends Performer> extends StatefulWidget {
-  final Create<P> create;
+  final P Function(BuildContext context)? _creator;
+  final P? _externalPerformer;
+  final bool _dispose;
   final Widget? child;
 
-  const PerformerProvider({
+  const PerformerProvider.create({
     super.key,
-    required this.create,
+    required P Function(BuildContext context) create,
     this.child,
-  });
+  })  : _creator = create,
+        _externalPerformer = null,
+        _dispose = true;
+
+  const PerformerProvider.external({
+    super.key,
+    required P performer,
+    bool dispose = false,
+    this.child,
+  })  : _creator = null,
+        _externalPerformer = performer,
+        _dispose = dispose;
 
   @override
   State<PerformerProvider<P>> createState() => _PerformerProviderState<P>();
@@ -23,95 +36,24 @@ class PerformerProvider<P extends Performer> extends StatefulWidget {
   }
 }
 
-class MultiPerformerProvider extends StatelessWidget {
-  final List<Widget> providers;
-  final Widget child;
-
-  const MultiPerformerProvider({
-    super.key,
-    required this.providers,
-    required this.child,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    Widget current = child;
-    for (final provider in providers.reversed) {
-      current = _wrapWith(provider, current);
-    }
-    return current;
-  }
-
-  Widget _wrapWith(Widget provider, Widget child) {
-    if (provider is PerformerProvider) {
-      return PerformerProvider(
-        key: provider.key,
-        create: provider.create,
-        child: child,
-      );
-    }
-    throw ArgumentError('Only PerformerProvider widgets are allowed');
-  }
-}
-
 class _PerformerProviderState<P extends Performer> extends State<PerformerProvider<P>> {
   late final P _performer;
 
   @override
   void initState() {
     super.initState();
-    _performer = widget.create(context);
+    if (widget._creator != null) {
+      _performer = widget._creator!(context);
+    } else if (widget._externalPerformer != null) {
+      _performer = widget._externalPerformer!;
+    } else {
+      throw StateError('Either a creator or an external performer must be provided.');
+    }
   }
 
   @override
   void dispose() {
-    _performer.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _PerformerInherited<P>(
-      performer: _performer,
-      child: widget.child ?? SizedBox.shrink(),
-    );
-  }
-}
-
-class ExternalPerformerProvider<P extends Performer> extends StatefulWidget {
-  final P performer;
-  final bool disposeOnUnmount;
-  final Widget? child;
-
-  const ExternalPerformerProvider({
-    super.key,
-    required this.performer,
-    this.disposeOnUnmount = false,
-    this.child,
-  });
-
-  @override
-  State<ExternalPerformerProvider<P>> createState() => _ExternalPerformerProviderState<P>();
-
-  static P of<P extends Performer>(BuildContext context) {
-    final inherited = context.dependOnInheritedWidgetOfExactType<_PerformerInherited<P>>();
-    assert(inherited != null, 'ExternalPerformerProvider<$P> not found in context');
-    return inherited!.performer;
-  }
-}
-
-class _ExternalPerformerProviderState<P extends Performer> extends State<ExternalPerformerProvider<P>> {
-  late final P _performer;
-
-  @override
-  void initState() {
-    super.initState();
-    _performer = widget.performer;
-  }
-
-  @override
-  void dispose() {
-    if (widget.disposeOnUnmount) {
+    if (widget._dispose) {
       _performer.dispose();
     }
     super.dispose();
@@ -138,6 +80,10 @@ class _PerformerInherited<P extends Performer> extends InheritedWidget {
   bool updateShouldNotify(_PerformerInherited<P> oldWidget) => false;
 }
 
+/// ----------------------------------------------------------------------------
+/// Build widget theo state
+/// Tự động tìm [Performer] nếu có ở widget cha
+/// ----------------------------------------------------------------------------
 class PerformerBuilder<P extends Performer> extends StatelessWidget {
   final Widget Function(BuildContext context, P performer) builder;
 
@@ -156,3 +102,36 @@ class PerformerBuilder<P extends Performer> extends StatelessWidget {
     );
   }
 }
+
+/*
+class MultiPerformerProvider extends StatelessWidget {
+  final List<Widget> providers;
+  final Widget child;
+
+  const MultiPerformerProvider({
+    super.key,
+    required this.providers,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget current = child;
+    for (final provider in providers.reversed) {
+      current = _wrapWith(provider, current);
+    }
+    return current;
+  }
+
+  Widget _wrapWith(Widget provider, Widget child) {
+    if (provider is PerformerProvider) {
+      return PerformerProvider.create(
+        key: provider.key,
+        create: provider.create,
+        child: child,
+      );
+    }
+    throw ArgumentError('Only PerformerProvider widgets are allowed');
+  }
+}
+*/
